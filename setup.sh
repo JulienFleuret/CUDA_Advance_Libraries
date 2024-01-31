@@ -1,5 +1,7 @@
 #!/bin/bash
 
+dvc pull models.dvc
+
 if [ ! -d "$PWD/third_party" ]; then
     ./scripts/download_libtorch.sh
     ./scripts/download_cuda.sh
@@ -12,4 +14,3 @@ elif [ ! -d "$PWD/third_party/opencv" ]; then
     ./scripts/download_opencv.sh
 fi
 
-dvc pull models.dvc
