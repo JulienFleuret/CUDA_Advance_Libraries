@@ -108,7 +108,7 @@ try {
         "{output o| | path where to write the output, must be a directory}"
         "{batch_size bs|-1| number of images to process at a time}"
         "{width w|224| width of the image expected by the model}"
-        "{height w|224| heigth of the image expected by the model}"
+        "{height h|224| heigth of the image expected by the model}"
         "{mean mu|0.485,0.456,0.406| mean to subract from the channels of the image. The values must be separated by a comma}"
         "{std sigma dev|0.229,0.224,0.225| standard deviation to normalize the channels of the image with. The values must be separated by a comma}"
     ;

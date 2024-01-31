@@ -1,6 +1,8 @@
 #!/bin/bash
 
+if [ ! -d "$PWD/models" ]; then
 dvc pull models.dvc
+fi
 
 if [ ! -d "$PWD/third_party" ]; then
     ./scripts/download_libtorch.sh
