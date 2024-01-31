@@ -2,9 +2,9 @@ name: CI ubuntu 23.04 no ROS
 
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request:
-    branches: [main]
+    branches: [master]
       
 jobs:
   build:
