@@ -118,6 +118,13 @@ int main()
 
 }
 
+///
+/// \brief get_filenames_in_directory : return the list of all the files in a directory.
+/// \param directory : directory to parse.
+/// \param remove_extension : should the file extension be removed from the filename.
+/// \return list of all the files in the provided repository.
+/// \note this function is not recursive!
+///
 std::vector<std::filesystem::path> get_filenames_in_directory(const std::filesystem::path& directory, const bool& remove_extension)
 {
     std::list<std::filesystem::path> filenames;
@@ -138,6 +145,12 @@ std::vector<std::filesystem::path> get_filenames_in_directory(const std::filesys
     return std::move(std::vector<std::filesystem::path>(filenames.begin(), filenames.end()));
 }
 
+///
+/// \brief mean_squared_error : compute the mean square between 2 images.
+/// \param _src1 : first source image
+/// \param _src2 : second source image
+/// \return mean squared error.
+///
 double mean_squared_error(cv::InputArray _src1, cv::InputArray _src2)
 {
     cv::Mat tmp;
