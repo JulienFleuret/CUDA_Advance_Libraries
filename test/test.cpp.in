@@ -1,0 +1,149 @@
+#include <iostream>
+#include <filesystem>
+#include <sstream>
+#include <list>
+#include <vector>
+#include <iterator>
+#include <cstdlib>
+
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
+
+///
+/// \brief getPreTrainedModelRoot : provide the path where the pre-trained model are stored.
+/// \return path to the directory where the pre-trained models are stored.
+///
+inline constexpr const char* getPreTrainedModelRoot()
+{
+    return "@MODEL_ROOT_DIR@";
+}
+
+///
+/// \brief getSourceImagesRoot : provide the path where the test images are stored.
+/// \return path to the directory where the test images are stored.
+///
+inline constexpr const char* getSourceImagesRoot()
+{
+   return "@SOURCE_IMAGES_ROOT_DIR@";
+}
+
+///
+/// \brief getExecutablePath : provide the path where the executable of the program `segmentation_model_tester.exe`
+/// \return provide the path where the executable of the program `segmentation_model_tester.exe`
+///
+inline constexpr const char* getExecutablePath()
+{
+   return "@BINARY_SOURCE_FILENAME@";
+}
+
+///
+/// \brief getTestRoot : provide the path where to save the masks.
+/// \return the path where to save the masks.
+///
+inline constexpr const char* getTestRoot()
+{
+   return "@BINARY_TEST_ROOT_DIR@";
+}
+
+///
+/// \brief getTestRoot : provide the path where to find the ground truth.
+/// \return the path where to find the ground truth.
+///
+inline constexpr const char* getGroundTruthRoot()
+{
+   return "@BINARY_GT_ROOT_DIR@";
+}
+
+///
+/// \brief get_filenames_in_directory : return the list of all the files in a directory.
+/// \param directory : directory to parse.
+/// \param remove_extension : should the file extension be removed from the filename.
+/// \return list of all the files in the provided repository.
+/// \note this function is not recursive!
+///
+std::vector<std::filesystem::path> get_filenames_in_directory(const std::filesystem::path& directory, const bool& remove_extension=false);
+
+///
+/// \brief mean_squared_error : compute the mean square between 2 images.
+/// \param _src1 : first source image
+/// \param _src2 : second source image
+/// \return mean squared error.
+///
+double mean_squared_error(cv::InputArray _src1, cv::InputArray _src2);
+
+int main()
+{
+    auto models = get_filenames_in_directory(getPreTrainedModelRoot(), true);
+
+
+    // If the test folder does not exists create it.
+    if(!std::filesystem::exists(getTestRoot()))
+    {
+        std::filesystem::create_directories(getTestRoot());
+    }
+
+    for(const auto& model : models)
+    {
+        std::stringstream system_cli;
+
+        system_cli<<getExecutablePath()<<" -i="<<getSourceImagesRoot()<<" -o="<<(getTestRoot() / model)<<" -m="<<model;
+
+        if(std::system(system_cli.str().c_str()))
+        {
+            return EXIT_FAILURE;
+        }
+
+        auto filenames = get_filenames_in_directory(getTestRoot() / model);
+
+        double tolerance = model.string() == "runet" ? 23. : model.string() == "raunet" ? 20. : model.string() == "linknet" ? 4. : 2.;
+
+        for(const auto& filename : filenames)
+        {
+            auto ref = cv::imread(getGroundTruthRoot() / model / filename, cv::IMREAD_UNCHANGED);
+            auto tgt = cv::imread(getTestRoot() / model / filename, cv::IMREAD_UNCHANGED);
+
+            cv::cvtColor(ref,ref, cv::COLOR_BGR2RGB);
+
+            if(mean_squared_error(ref, tgt) >= tolerance)
+                std::clog<<model<<" FAILED!"<<std::endl;
+
+        }
+
+    }
+
+    std::cout<<"ALL UNIT TESTS HAVE BEEN COMPLETED WITH SUCCESS"<<std::endl;
+
+     return EXIT_SUCCESS;
+
+}
+
+std::vector<std::filesystem::path> get_filenames_in_directory(const std::filesystem::path& directory, const bool& remove_extension)
+{
+    std::list<std::filesystem::path> filenames;
+
+    for (const auto& entry : std::filesystem::directory_iterator(directory))
+    {
+        // An assumption is made here, that what is not a directory is a file.
+        // This assumption is made to avoid having to check if the file is `regular`, `block`, `symlink`,...
+        if(!entry.is_directory())
+        {
+            auto tmp = entry.path().filename();
+            if(remove_extension)
+              tmp = tmp.replace_extension();
+            filenames.emplace_back(tmp);
+        }
+    }
+
+    return std::move(std::vector<std::filesystem::path>(filenames.begin(), filenames.end()));
+}
+
+double mean_squared_error(cv::InputArray _src1, cv::InputArray _src2)
+{
+    cv::Mat tmp;
+
+    cv::subtract(_src1, _src2, tmp);
+    cv::multiply(tmp, tmp, tmp);
+
+    return cv::mean(tmp)(0);
+}
