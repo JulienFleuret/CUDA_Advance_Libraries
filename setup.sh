@@ -12,3 +12,4 @@ elif [ ! -d "$PWD/third_party/opencv" ]; then
     ./scripts/download_opencv.sh
 fi
 
+dvc pull models.dvc
