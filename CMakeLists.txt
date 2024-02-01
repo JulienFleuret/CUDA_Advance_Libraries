@@ -76,7 +76,7 @@ set_target_properties(CUDAAdvanceLibraries2 PROPERTIES CUDA_ARCHITECTURES "${LOC
 set(Torch_DIR ${LIBTORCH_ROOT_DIR}/share/cmake/Torch)
 
 set(CAFFE2_USE_CUDNN ON)
-
+set(CUDNN_LIBRARY_PATH ${LIBTORCH_ROOT_DIR}/lib)
 
 find_package(Torch REQUIRED PATHS ${Torch_DIR} ${CUDAToolkit_DIR})
 
