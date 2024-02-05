@@ -2,8 +2,6 @@ name: CI ubuntu 23.04 no ROS
 
 on:
   push:
-    branches:
-      - master
     tags:
       - ci      
 jobs:
