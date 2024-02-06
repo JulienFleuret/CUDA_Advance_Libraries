@@ -54,7 +54,7 @@ All the files related to the build of the unit test. Additionally, it contains t
 Configuration file.
 
 `run.sh`
-Run the executable (arguments must be provided). If the project was not compiled create the project first. If the pre-trained models have not been downloaded, download the models (requires DVC).
+Run the executable (same arguments as `segmentation_model_tester.exe` must be provided). If the project was not compiled create the project first. If the pre-trained models have not been downloaded, download the models (requires DVC).
 
 `setup.sh`
 Install all the dependencies and prepare all the dependencies.
