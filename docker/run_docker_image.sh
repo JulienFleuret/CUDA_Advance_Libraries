@@ -12,4 +12,10 @@ else
     docker pull "${IMAGE_NAME}:${TAG}"
 fi
 
-docker run --runtime=nvidia --gpus all -it ${IMAGE_NAME}:${TAG} /bin/bash
+if [ -d "/usr/share/doc/opencv-doc/examples/data/" ]; then
+docker run --runtime=nvidia --gpus all -it --rm -v /usr/share/doc/opencv-doc/examples/data/:/usr/share/doc/opencv-doc/examples/data/ ${IMAGE_NAME}:${TAG} /bin/bash 
+else
+docker run --runtime=nvidia --gpus all -it --rm ${IMAGE_NAME}:${TAG} /bin/bash 
+fi
+
+
