@@ -67,10 +67,11 @@ Dockerfile used to create the docker images that is used by the script in the `d
 
 ## Notes And Observations
 
-The pre-trained models: `RUNet`, `AUNet` and `RAUNet` comes from [here](https://github.com/LeeJunHyun/Image_Segmentation) The other pre-trained models come from the python package [segmentation_model_pytorch](https://pypi.org/project/segmentation-models-pytorch/). They were trained on PASCAL VOC 2012, with a split of 70% for training, 20% for validation, and 10% for testing. The Optimizer selected for the training was `Adam` with a learning rate of `5e-4`, the loss function was `CrossEntropyLoss`. The number of epoch was pre-set to 100, and associated with an early stop approach with a patience of 15 epochs.
+The pre-trained models: `RUNet`, `AUNet` and `RAUNet` comes from [here](https://github.com/LeeJunHyun/Image_Segmentation) The other pre-trained models come from the python package [segmentation_model_pytorch](https://pypi.org/project/segmentation-models-pytorch/). They were trained on PASCAL VOC 2012, with a split of 70% for training, 20% for validation, and 10% for testing. The Optimizer selected for the training was `Adam` with a learning rate of `5e-4`, and the loss function was `CrossEntropyLoss`. The number of epoch was pre-set to 100, and associated with an early stop approach with a patience of 15 epochs.
 
 For someone working in ubuntu the package `opencv-doc` will install the OpenCV's sample folder at this location: `/usr/share/doc/opencv-doc/examples/data/`.
 You can try for instance `./bin/segmentation_model_tester.exe --input=/usr/share/doc/opencv-doc/examples/data/aero1.jpg --output=wherever/you/whish/results` 
+Note that it the path `/usr/share/doc/opencv-doc/examples/data/` exists when the script `run_docker_image.sh` is called the path is added to the path of the container.
 
 ### ONNX, TensorRT, Keras, TensorFlow, and TensorFlow-Lite models
 ONNX, TensorRT, Keras, TensorFlow, and TensorFlow-Lite models are not supported at this time.
