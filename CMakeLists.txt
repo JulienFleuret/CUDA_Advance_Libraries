@@ -9,8 +9,13 @@ set(CMAKE_VERBOSE_MAKEFILE ON)
 set(_GLIBCXX_USE_CXX11_ABI 0)
 
 
-
+if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/models)
 set(MODEL_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/models)
+set(USE_MODELS true)
+else()
+set(MODEL_ROOT_DIR )
+set(USE_MODELS false)
+endif()
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp.in ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 
 add_executable(CUDAAdvanceLibraries2 ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)

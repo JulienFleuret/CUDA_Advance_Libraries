@@ -28,7 +28,7 @@ std::vector<float> split_string(const cv::String& str, const cv::String& delim);
 ///
 inline constexpr const char* getPreTrainedModelRoot()
 {
-    return "@MODEL_ROOT_DIR@";
+    return "/home/smile/prog/CUDAAdvanceLibraries2/models";
 }
 
 ///
@@ -37,7 +37,7 @@ inline constexpr const char* getPreTrainedModelRoot()
 ///
 inline constexpr bool usePretrainedModel()
 {
-    return @USE_MODELS@;
+    return true;
 }
 
 ///
