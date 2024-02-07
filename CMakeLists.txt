@@ -2,20 +2,16 @@ cmake_minimum_required(VERSION 3.5)
 
 project(CUDAAdvanceLibraries2 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_VERBOSE_MAKEFILE ON)
 set(_GLIBCXX_USE_CXX11_ABI 0)
 
 
-if (EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/models)
+
 set(MODEL_ROOT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/models)
-set(USE_MODELS true)
-else()
-set(MODEL_ROOT_DIR )
-set(USE_MODELS false)
-endif()
+
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp.in ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
 
 add_executable(CUDAAdvanceLibraries2 ${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp)
@@ -97,8 +93,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${TORCH_CXX_FLAGS}")
 #endif()
 
 
-set(OpenCV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/opencv/lib/cmake/opencv4)
-find_package(OpenCV REQUIRED core imgcodecs)
+#set(OpenCV_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/opencv/lib/cmake/opencv4)
+find_package(OpenCV REQUIRED core imgcodecs imgproc hdf)
 
 target_include_directories(CUDAAdvanceLibraries2 PRIVATE ${TORCH_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS} ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cuda/include)
 target_link_directories(CUDAAdvanceLibraries2 PRIVATE  ${LIBTORCH_LIB_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/third_party/cuda/lib64 ${OpenCV_INCLUDE_DIRS}/../../lib )
@@ -118,6 +114,7 @@ target_link_libraries(CUDAAdvanceLibraries2 PRIVATE
     -lopencv_core
     -lopencv_imgcodecs
     -lopencv_imgproc
+    -lopencv_hdf
 )
 
 

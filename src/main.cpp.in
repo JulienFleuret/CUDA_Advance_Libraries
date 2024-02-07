@@ -2,6 +2,10 @@
 #include <filesystem>
 #include <regex>
 #include <cstdlib>
+#include <expected>
+#if __has_include(<format>)
+#include <format>
+#endif
 
 #include <torch/torch.h>
 #include <torch/script.h>
@@ -10,6 +14,7 @@
 #include <opencv2/core/utils/filesystem.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/hdf.hpp>
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -20,7 +25,8 @@ namespace fs = std::filesystem;
 /// \param delim : delimiter character or string.
 /// \return a vector of single precision floating points numbers.
 ///
-std::vector<float> split_string(const cv::String& str, const cv::String& delim);
+template<class T>
+std::vector<T> split_string(const cv::String& str, const cv::String& delim);
 
 ///
 /// \brief getPreTrainedModelRoot : provide the path where the pre-trained model are stored.
@@ -35,10 +41,11 @@ inline constexpr const char* getPreTrainedModelRoot()
 /// \brief usePretrainedModel : true if the pre-trained models are provided, false otherwise.
 /// \return true if the pre-trained models are provided, false otherwise.
 ///
-inline constexpr bool usePretrainedModel()
+inline bool usePretrainedModel()
 {
-    return @USE_MODELS@;
+    return std::filesystem::exists(getPreTrainedModelRoot());
 }
+
 
 ///
 /// \brief The generate_output_filename_helper_t class : helper class to generate the output filename
@@ -72,6 +79,17 @@ struct generate_output_filename_helper_t
 };
 
 ///
+/// \brief The SavingOptions enum : saving modes
+///
+enum class SavingOptions : int
+{
+    SAVE_TIFF,
+    SAVE_HDF5,
+    SAVE_FALSE_COLOUR_20,
+    SAVE_FALSE_COLOUR_N
+};
+
+///
 /// \brief process_images : apply a segmentation model to one or more images.
 /// \param device : device to use for the computation.
 /// \param filenames : name of images to process.
@@ -80,22 +98,253 @@ struct generate_output_filename_helper_t
 /// \param heigth : height of the image expected by the model.
 /// \param generate_output_filename : helper functor to find the output filename.
 /// \param model : model to use for processing the data.
+/// \param saving_fmt : format to use when saving the images
 /// \return true if all the images were properly processed and saved.
 ///
-bool process_images(
+std::expected<bool, std::string> process_images(
         const torch::Device& device,
         const std::vector<cv::String>& filenames,
         const std::size_t& batch_size, const int &width, const int &height,
         const torch::ArrayRef<float>& _mu, const torch::ArrayRef<float>& _dev,
         const generate_output_filename_helper_t& generate_output_filename,
-        torch::jit::Module& model);
+        const SavingOptions& saving_fmt,
+        torch::jit::Module& model,
+        const int& number_of_colours=-1);
+
+
+///
+/// \brief The Saver class : meta template class to manage the saving of the outputs.
+///
+template<class T>
+class Saver
+{
+public:
+
+    ///
+    /// \brief save : method to manage the saving of the data
+    /// \param data : data to save
+    /// \param filename : name of the file to write (with extension)
+    /// \param args : additional argument if any supported.
+    /// \return true if the saving was complete, false if not. In case of unexpected arguments a string can be access.
+    ///
+    template<class... Args>
+    std::expected<bool,std::string> save(const torch::Tensor& data, const std::filesystem::path& filename, const Args&... args)
+    {
+        return static_cast<T*>(this)->saveImpl(data, filename, args...);
+    }
+};
+
+///
+/// \brief The HDF5Save class : class to manage hdf5 data saving.
+///
+class HDF5Save final : public Saver<HDF5Save>
+{
+
+public:
+
+    ///
+    /// \brief saveImpl : save the data in a HDF5 file.
+    /// \param _data : data to save.
+    /// \param filename : name of the file to save.
+    /// \return true if the saving was complete, false if not. In case of unexpected arguments a string can be access.
+    ///
+    std::expected<bool,std::string> saveImpl(const torch::Tensor& _data, const std::filesystem::path& filename) const
+    {
+        try {
+
+            torch::Tensor data = _data.to(torch::kCPU);
+
+            auto stype = data.dtype();
+
+            if((stype != torch::kFloat32) && (stype != torch::kFloat64))
+            {
+                data = data.to(torch::kFloat32);
+            }
+
+            std::vector<int> sizes;
+
+            {
+                auto t_sizes = data.sizes();
+
+                sizes.assign(t_sizes.begin(), t_sizes.end());
+            }
+
+            cv::Mat tmp(sizes, CV_32F, data.data_ptr<float>());
+
+            auto fid = cv::hdf::open(filename.string());
+
+            fid->dswrite(tmp,"output");
+
+            return true;
+        }
+        catch(const std::exception& err)
+        {
+#ifdef __cpp_lib_format
+            return std::unexpected(std::format("An exception was caught: {}", err.what()));
+#else
+            return std::unexpected(cv::format("An exception was caught: %s", err.what()));
+#endif
+        }
+    }
+};
+
+///
+/// \brief The TIFFSave class : class to manage the data saving as TIFF images of unsigned short data.
+///
+class TIFFSave final : public Saver<TIFFSave>
+{
+public:
+
+    ///
+    /// \brief saveImpl : save the data in a TIFF file.
+    /// \param _data : data to save.
+    /// \param filename : name of the file to save.
+    /// \param params : saving parameters (e.g. PNG compression)
+    /// \return true if the saving was complete, false if not. In case of unexpected arguments a string can be access.
+    ///
+    std::expected<bool, std::string> saveImpl(const torch::Tensor& _data, const std::filesystem::path& filename, const std::vector<int>& params = std::vector<int>()) const
+    {
+        if(_data.ndimension() != 2)
+            return std::unexpected(
+#ifdef __cpp_lib_format
+                        std::format("Expected 2D tensor, received a {}D!", _data.ndimension())
+#else
+                        cv::format("Expected 2D tensor, received a %ldD!", _data.ndimension())
+#endif
+                        );
+
+        if((_data.dtype() == torch::kFloat16) || (_data.dtype() == torch::kFloat32) || (_data.dtype() == torch::kFloat64))
+            return std::unexpected("Expected an integer data type, received a floating point data type!");
+
+        torch::Tensor data = _data.to(torch::kI32);
+
+        int mn = data.min().item<int>();
+
+        if(mn < 0)
+        {
+            data+=mn;
+        }
+
+        data = data.to(torch::kCPU);
+
+        cv::Mat tmp(data.size(0), data.size(1), CV_32S, data.data_ptr<int>());
+
+        tmp.convertTo(tmp, CV_16U);
+
+        return cv::imwrite(filename.string(), tmp, params);
+    }
+};
+
+///
+/// \brief The SaveFalseColours class : class to manage the saving of data in false colours.
+///
+class SaveFalseColours final : public Saver<SaveFalseColours>
+{
+public:
+    
+    ///
+    /// \brief saveImpl : save the data as a false colour image.
+    /// \param _data : data to save.
+    /// \param filename : name of the file to save.
+    /// \param _orignal_size : size of the image before processing.
+    /// \return true if the saving was complete, false if not. In case of unexpected arguments a string can be access.
+    ///
+    std::expected<bool, std::string> saveImpl(const torch::Tensor& _data, const std::filesystem::path& filename, const cv::Size& _orignal_size) const
+    {
+        std::array<uchar, 66> lookup_table_ =
+        {
+            0,0,0,
+            0,0,0x80,
+            0,0x80,0,
+            0,0x80,0x80,
+            0x80,0,0,
+            0x80,0,0x80,
+            0x80,0x80,0,
+            0x80,0x80,0x80,
+            0,0,0x40,
+            0,0,0xc0,
+            0,0x80,0x40,
+            0,0x80,0xc0,
+            0x80,0,0x40,
+            0x80,0,0xc0,
+            0x80,0x80,0x40,
+            0x80,0x80,0xc0,
+            0,0x40,0,
+            0,0x40,0x80,
+            0,0xc0,0,
+            0,0xc0,0x80,
+            0x40,0x80,0,
+            0xFF,0xFF,0xFF
+        };
+
+        torch::Tensor image = _data.to(torch::kCPU).squeeze();
+
+        if(image.ndimension() != 2)
+#ifdef __cpp_lib_format
+            return std::unexpected(std::format("The input was expected to either be a [1 x H x W] or a [1 x 1 x H x W] tensor. Got {}",_data.sizes()));
+#else
+        {
+            std::stringstream stream;
+
+            stream<<"The input was expected to either be a [1 x H x W] or a [1 x 1 x H x W] tensor. Got [";
+
+            for(std::int64_t i = 0; i < _data.ndimension(); i++)
+                stream << _data.size(i)<<((i == (_data.ndimension() - 1) ) ? " x " : "]");
+
+            return std::unexpected(stream.str());
+        }
+#endif
+
+
+        cv::Mat dst(image.size(0), image.size(1), CV_8UC1, image.data_ptr<uchar>());
+
+
+        cv::Mat3b tmp(dst.size());
+
+        std::transform(dst.begin<uchar>(), dst.end<uchar>(),
+                       tmp.begin(),
+                       [&lookup_table_](const uchar& v)->cv::Vec3b
+        {
+            int colour_idx = static_cast<int>(v) * 3;
+
+            cv::Vec3b colour;
+
+            std::copy_n(std::addressof(lookup_table_.at(colour_idx)), 3, colour.val);
+
+            return colour;
+        });
+
+        if(_orignal_size.empty())
+        {
+            dst = tmp;
+        }
+        else
+        {
+            cv::resize(tmp, dst, _orignal_size);
+        }
+
+        return cv::imwrite(filename.string(), tmp);
+    }
+};
+
+///
+/// \brief save_data : save the data using the provided saver.
+/// \param data : data to save.
+/// \param filename : name of the file to write (with extension).
+/// \param args : additional argument if any supported.
+/// \return true if the saving was complete, false if not. In case of unexpected arguments a string can be access.
+///
+template<class SaveImpl, class... ExtraArgs>
+std::expected<bool, std::string> save_data(const torch::Tensor& data, const std::filesystem::path& filename, const ExtraArgs&... args);
+
+
 
 int main(int argc, char* argv[])
 {
 
 try {
         cv::String keys;
-        if constexpr(usePretrainedModel())
+        if(usePretrainedModel())
         {
             keys=
                     "{help usage ? | | print this message}"
@@ -121,7 +370,11 @@ try {
                     "{width w|224| width of the image expected by the model}"
                     "{height h|224| heigth of the image expected by the model}"
                     "{mean mu|0.485,0.456,0.406| mean to subract from the channels of the image. The values must be separated by a comma}"
-                    "{std sigma dev|0.229,0.224,0.225| standard deviation to normalize the channels of the image with. The values must be separated by a comma}";
+                    "{std sigma dev|0.229,0.224,0.225| standard deviation to normalize the channels of the image with. The values must be separated by a comma}"
+                    "{save_as_tiff_u16|false| save the argmax of the output as unsigned short tiff image}"
+                    "{save_as_hdf5|false| save the output of the model as a hdf5 file}"
+                    "{save_as_false_colour|true| save the output of the model as a false colour image file}"
+                    "{nb_of_colours noc|20| number of false colours to use. Note at the moment only 20 colours are supported.}";
         }
         else
         {
@@ -134,7 +387,11 @@ try {
                     "{width w|224| width of the image expected by the model}"
                     "{height h|224| heigth of the image expected by the model}"
                     "{mean mu|0.485,0.456,0.406| mean to subract from the channels of the image. The values must be separated by a comma}"
-                    "{std sigma dev|0.229,0.224,0.225| standard deviation to normalize the channels of the image with. The values must be separated by a comma}";
+                    "{std sigma dev|0.229,0.224,0.225| standard deviation to normalize the channels of the image with. The values must be separated by a comma}"
+                    "{save_as_tiff_u16|false| save the argmax of the output as unsigned short tiff image}"
+                    "{save_as_hdf5|false| save the output of the model as a hdf5 file}"
+                    "{save_as_false_colour|true| save the output of the model as a false colour image file}"
+                    "{nb_of_colours noc|20| number of false colours to use. Note at the moment only 20 colours are supported.}";
         }
 
 
@@ -166,6 +423,13 @@ try {
         return EXIT_FAILURE;
     }
 
+    if( (static_cast<int>(parser.get<bool>("save_as_tiff_u16")) + static_cast<int>(parser.get<bool>("save_as_hdf5")) + static_cast<int>(parser.get<bool>("save_as_false_colour"))) > 1 )
+    {
+        std::cerr<<"A single output saving format can be selected!"<<std::endl;
+        return EXIT_FAILURE;
+    }
+
+
 
     // Step 0) Parse the inputs.
     cv::String model_arg = parser.get<cv::String>("model");
@@ -173,9 +437,15 @@ try {
     cv::String output_path = parser.get<cv::String>("output");
     int width = parser.get<int>("width");
     int height = parser.get<int>("height");
+    bool save_as_tiff = parser.get<bool>("save_as_tiff_u16");
+    bool save_as_hdf5 = parser.get<bool>("save_as_hdf5");
+    bool save_as_false = !(save_as_tiff || save_as_hdf5);
+    int noc = parser.get<int>("number_of_colours");
 
-    std::vector<float> mu = split_string(parser.get<cv::String>("mean"), ",");
-    std::vector<float> stddev = split_string(parser.get<cv::String>("std"), ",");
+    SavingOptions saving_mode = save_as_tiff ? SavingOptions::SAVE_TIFF : save_as_hdf5 ? SavingOptions::SAVE_HDF5 : noc == 20 ? SavingOptions::SAVE_FALSE_COLOUR_20 : SavingOptions::SAVE_FALSE_COLOUR_N;
+
+    std::vector mu = split_string<float>(parser.get<cv::String>("mean"), ",");
+    std::vector stddev = split_string<float>(parser.get<cv::String>("std"), ",");
 
     torch::jit::Module model;
     torch::Device device = torch::cuda::is_available() ? torch::kCUDA : torch::kCPU;
@@ -184,7 +454,7 @@ try {
 
     int batch_size = parser.get<int>("batch_size");
 
-    if constexpr(usePretrainedModel())
+    if(usePretrainedModel())
     {
         cv::String pre_trained_models[]  = {        "unet",
                                                     "unetpp",
@@ -297,14 +567,15 @@ try {
             filenames = std::move(tmp);
         }
 
+
         // Process all the images.
-        if(!process_images(device, filenames, static_cast<std::size_t>(batch_size), width, height, mu, stddev, generate_output_filename, model))
+        if(!process_images(device, filenames, static_cast<std::size_t>(batch_size), width, height, mu, stddev, generate_output_filename, saving_mode, model, saving_mode == SavingOptions::SAVE_FALSE_COLOUR_N ? noc : -1))
             return EXIT_FAILURE;
     }
     else
     {
         // Process the image.
-        if(!process_images(device, {input_path}, static_cast<std::size_t>(batch_size), width, height, mu, stddev, generate_output_filename, model))
+        if(!process_images(device, {input_path}, static_cast<std::size_t>(batch_size), width, height, mu, stddev, generate_output_filename, saving_mode, model, saving_mode == SavingOptions::SAVE_FALSE_COLOUR_N ? noc : -1))
             return EXIT_FAILURE;
     }
 }
@@ -318,17 +589,34 @@ return EXIT_FAILURE;
 }
 
 ///
+/// \brief save_data : save the data using the provided saver.
+/// \param data : data to save.
+/// \param filename : name of the file to write (with extension).
+/// \param args : additional argument if any supported.
+/// \return true if the saving was complete, false if not. In case of unexpected arguments a string can be access.
+///
+template<class SaveImpl, class... ExtraArgs>
+std::expected<bool, std::string> save_data(const torch::Tensor& data, const std::filesystem::path& filename, const ExtraArgs&... args)
+{
+    SaveImpl saver;
+
+    return saver.save(data, filename, args...);
+}
+
+
+///
 /// \brief split_string : split a string into token and convert them into floating point values.
 /// \param str : string to process.
 /// \param delim : delimiter character or string.
 /// \return a vector of single precision floating points numbers.
 ///
-std::vector<float> split_string(const cv::String& str, const cv::String& delim)
+template<class T>
+std::vector<T> split_string(const cv::String& str, const cv::String& delim)
 {
-    std::list<float> dst;
+    std::list<T> dst;
 
     // Regular expression for comma delimiter
-    std::regex regexDelimiter(",");
+    std::regex regexDelimiter(delim);
 
     // Use sregex_token_iterator to split the string
     std::sregex_token_iterator iter(str.begin(), str.end(), regexDelimiter, -1);
@@ -341,7 +629,7 @@ std::vector<float> split_string(const cv::String& str, const cv::String& delim)
         ++iter;
     }
 
-    return std::move(std::vector<float>(dst.begin(), dst.end()));
+    return std::move(std::vector<T>(dst.begin(), dst.end()));
 }
 
 
@@ -441,13 +729,15 @@ bool save_masks(const torch::Tensor& _image, const cv::String& filename, const c
 /// \param model : model to use for processing the data.
 /// \return true if all the images were properly processed and saved.
 ///
-bool process_images(const torch::Device& device,
+std::expected<bool, std::string> process_images(const torch::Device& device,
                     const std::vector<cv::String>& filenames,
                     const std::size_t& batch_size,
                     const int& width, const int& height,
                     const torch::ArrayRef<float>& _mu, const torch::ArrayRef<float>& _dev,
                     const generate_output_filename_helper_t& generate_output_filename,
-                    torch::jit::Module& model)
+                    const SavingOptions& saving_fmt,
+                    torch::jit::Module& model,
+                    const int& number_of_colours)
 {
 
     // Image net mean and standard deviation per channels.
@@ -488,7 +778,10 @@ bool process_images(const torch::Device& device,
 
         torch::Tensor y = std::move(model.forward({X}).toTensor());
 
-        y = y.argmax(1).to(torch::kByte);
+        if(saving_fmt != SavingOptions::SAVE_HDF5)
+        {
+            y = y.argmax(1).to(torch::kByte);
+        }        
 
 
 
@@ -499,25 +792,46 @@ bool process_images(const torch::Device& device,
 
             torch::Tensor tmp = y[j];
 
-            // Re-upsample the detection to the size of the original size and apply a colormap to distinguish the classes.
-            // Only the colour map is saved.
-            if constexpr(use_torch_for_upsampling())
+            std::expected<bool, std::string> check;
+
+            auto dst_filename = generate_output_filename.get(*(filenames_it + j));
+
+            if((saving_fmt == SavingOptions::SAVE_HDF5) || (saving_fmt == SavingOptions::SAVE_TIFF) )
             {
                 tmp = at::upsample_bicubic2d(tmp.unsqueeze(0).unsqueeze(0).to(torch::kFloat32), {orignal_size.height, orignal_size.width}, true,1.,1.).to(torch::kByte);
 
-                orignal_size = cv::Size();
+                check = saving_fmt == SavingOptions::SAVE_HDF5 ? save_data<HDF5Save>(tmp, dst_filename) : save_data<TIFFSave>(tmp, dst_filename);
             }
-
-
-            if(!save_masks(tmp, generate_output_filename.get(*(filenames_it + j)), orignal_size))
+            else
             {
-                return false;
+                // Re-upsample the detection to the size of the original size and apply a colormap to distinguish the classes.
+                // Only the colour map is saved.
+                if constexpr(use_torch_for_upsampling())
+                {
+                    tmp = at::upsample_bicubic2d(tmp.unsqueeze(0).unsqueeze(0).to(torch::kFloat32), {orignal_size.height, orignal_size.width}, true,1.,1.).to(torch::kByte);
+
+                    orignal_size = cv::Size();
+                }
+
+                check = save_data<SaveFalseColours>(tmp, dst_filename, orignal_size);
+
+//                if(!save_masks(tmp, dst_filename, orignal_size))
+//                {
+//                    return false;
+//                }
             }
+
+            if(!check)
+            {
+                return check;
+            }
+
         }
     }
 
     return true;
 }
+
 
 
 

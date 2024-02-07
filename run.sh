@@ -94,4 +94,4 @@ fi
 fi
 
 ./bin/segmentation_model_tester.exe -i=$images -o=$output -m=$model -bs=$batch_size -w=$width -h=$height -mu="$mean" -sigma="$std"
-
+	
